@@ -120,16 +120,24 @@ var MODE = "${mode}";
 var INCLUDE = ${includeJson};
 var BYPASS = ${bypassJson};
 
+function strEndsWith(value, suffix) {
+  var pos = value.length - suffix.length;
+  return pos >= 0 && value.indexOf(suffix, pos) === pos;
+}
+
 function hostMatches(host, rule) {
   if (!rule) return false;
+  host = (host || "").toLowerCase().replace(/\.$/, "");
+  rule = (rule || "").toLowerCase().replace(/\.$/, "");
+  if (!host || !rule) return false;
 
   // Suffix rule: ".ir" means anything ending with ".ir"
   if (rule.charAt(0) === ".") {
-    return shExpMatch(host, "*" + rule);
+    return strEndsWith(host, rule);
   }
 
   if (host === rule) return true;
-  return shExpMatch(host, "*." + rule);
+  return host.length > rule.length && strEndsWith(host, "." + rule);
 }
 
 function isInList(host, list) {
@@ -155,7 +163,7 @@ function isLocalOrPrivate(host) {
 }
 
 function FindProxyForURL(url, host) {
-  host = (host || "").toLowerCase();
+  host = (host || "").toLowerCase().trim().replace(/\.$/, "");
 
   // Always DIRECT for local/private networks
   if (isLocalOrPrivate(host)) return DIRECT;
