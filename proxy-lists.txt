@@ -86,6 +86,8 @@ googlevideo.com
 youtube.com
 facebook.com
 instagram.com
+telegram.org
+whatsapp.com
 cdninstagram.com
 radiojavan.com
 mediacon-rj.app
@@ -115,7 +117,6 @@ google.com
 twitter.com
 x.com
 t.me
-whatsapp.com
 wa.me
 twimg.com
 t.co
