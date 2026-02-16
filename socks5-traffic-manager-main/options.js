@@ -116,6 +116,25 @@ function toAsciiHostnameFromInput(raw) {
   }
 }
 
+function fallbackHostToken(raw) {
+  let s = (raw || "").trim();
+  if (!s) return "";
+
+  s = s.replace(/^["']|["']$/g, "").trim();
+  s = s.replace(/^\*\./, "");
+  s = s.toLowerCase();
+  s = s.replace(/^https?:\/\//, "");
+  s = s.replace(/\/.*$/, "");
+  s = s.replace(/:\d+$/, "");
+  s = s.replace(/\.$/, "");
+  s = s.replace(/[^\x00-\x7F]/g, "");
+  s = s.trim();
+
+  // Keep a conservative host-like token only.
+  if (!/^[a-z0-9.-]+$/.test(s)) return "";
+  return s;
+}
+
 function registrableDomain(host) {
   host = (host || "").toLowerCase().replace(/\.$/, "");
   if (!host) return host;
@@ -136,21 +155,23 @@ function registrableDomain(host) {
   return parts.slice(-2).join(".");
 }
 
-function normalizeEntry(raw, { allowSuffixRule = false } = {}) {
+function normalizeEntry(raw, { allowSuffixRule = false, reduceToRoot = true } = {}) {
   if (allowSuffixRule) {
     const suffix = normalizeSuffixRule(raw);
     if (suffix) return suffix;
   }
+
   const host = toAsciiHostnameFromInput(raw);
-  if (!host) return "";
-  return registrableDomain(host);
+  const safeHost = host || fallbackHostToken(raw);
+  if (!safeHost) return "";
+  return reduceToRoot ? registrableDomain(safeHost) : safeHost;
 }
 
-function parseDomainList(text, { allowSuffixRule = false } = {}) {
+function parseDomainList(text, { allowSuffixRule = false, reduceToRoot = true } = {}) {
   const cleanedText = cleanupLines(text);
   const lines = cleanedText.split("\n");
   const cleaned = lines
-    .map((x) => normalizeEntry(x, { allowSuffixRule }))
+    .map((x) => normalizeEntry(x, { allowSuffixRule, reduceToRoot }))
     .filter(Boolean);
 
   return Array.from(new Set(cleaned));
@@ -287,9 +308,11 @@ async function saveSettings({ isAuto = false } = {}) {
 
   const mode = getSelectedMode();
 
-  // Parse + normalize (root domain + punycode, bypass supports .ir)
-  const includeSites = parseDomainList(document.getElementById("includeSites").value, { allowSuffixRule: false });
-  const bypassSites = parseDomainList(document.getElementById("bypassSites").value, { allowSuffixRule: true });
+  // Parse + normalize:
+  // - Include: keep entered host/domain in settings UI; PAC reduces to root internally
+  // - Bypass: exact host/domain + suffix rules like ".ir"
+  const includeSites = parseDomainList(document.getElementById("includeSites").value, { allowSuffixRule: false, reduceToRoot: false });
+  const bypassSites = parseDomainList(document.getElementById("bypassSites").value, { allowSuffixRule: true, reduceToRoot: false });
 
   // Keep current enabled state
   const current = await chrome.storage.sync.get({ enabled: false });

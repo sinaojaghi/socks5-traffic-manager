@@ -12,6 +12,8 @@ const DEFAULT_SETTINGS = {
   bypassSites: []
 };
 
+const COMMON_SECOND_LEVEL = new Set(["co", "com", "net", "org", "gov", "edu", "ac"]);
+
 function setIcon(enabled) {
   const state = enabled ? "enabled" : "disabled";
   chrome.action.setIcon({
@@ -43,24 +45,41 @@ function isAsciiOnly(s) {
 // Also supports suffix rules like ".ir".
 function toAsciiHostname(host) {
   if (!host) return "";
-  host = String(host).trim();
+  let s = String(host).trim();
+  if (!s) return "";
+
+  s = s.replace(/^["']|["']$/g, "").trim();
+  s = s.replace(/^\*\./, "");
 
   // Suffix rule like ".ir"
-  if (host.startsWith(".")) {
-    const suffix = host.toLowerCase().replace(/[^\x00-\x7F]/g, "");
+  if (s.startsWith(".")) {
+    const suffix = s.toLowerCase().replace(/[^\x00-\x7F]/g, "");
     return suffix.startsWith(".") ? suffix : "";
   }
 
+  const hasScheme = /^[a-zA-Z][a-zA-Z0-9+\-.]*:\/\//.test(s);
+  const candidate = hasScheme ? s : `https://${s}`;
+
   try {
-    const u = new URL(`https://${host}`);
+    const u = new URL(candidate);
     return (u.hostname || "").toLowerCase().replace(/\.$/, "");
   } catch {
-    const stripped = host.replace(/[^\x00-\x7F]/g, "");
+    s = s.toLowerCase();
+    s = s.replace(/^https?:\/\//, "");
+    s = s.replace(/\/.*$/, "");
+    s = s.replace(/:\d+$/, "");
+    s = s.replace(/\.$/, "");
+    s = s.trim();
+    if (!s) return "";
+
+    const stripped = s.replace(/[^\x00-\x7F]/g, "");
+    if (!stripped) return "";
+
     try {
       const u2 = new URL(`https://${stripped}`);
       return (u2.hostname || "").toLowerCase().replace(/\.$/, "");
     } catch {
-      return "";
+      return stripped;
     }
   }
 }
@@ -83,11 +102,9 @@ function registrableDomain(host) {
 
   const tld = parts[parts.length - 1];
   const sld = parts[parts.length - 2];
-
-  const commonSecondLevel = new Set(["co", "com", "net", "org", "gov", "edu", "ac"]);
   const looksLikeCcTld = tld.length === 2;
 
-  if (looksLikeCcTld && commonSecondLevel.has(sld) && parts.length >= 3) {
+  if (looksLikeCcTld && COMMON_SECOND_LEVEL.has(sld) && parts.length >= 3) {
     return parts.slice(-3).join(".");
   }
 
@@ -104,19 +121,26 @@ function normalizeListForPac(list, { reduceToRoot = true } = {}) {
 }
 
 function buildPacScript({ proxyHost, proxyPort, mode, includeSites, bypassSites }) {
-  // Include: root domains
-  const inc = normalizeListForPac(includeSites, { reduceToRoot: true });
+  const safeProxyHost = toAsciiHostname(proxyHost) || "127.0.0.1";
+  const numericPort = Number(proxyPort);
+  const safeProxyPort = Number.isFinite(numericPort) && numericPort > 0 && numericPort <= 65535
+    ? Math.floor(numericPort)
+    : 10808;
+  const safeMode = mode === "all" ? "all" : "selected";
 
-  // Bypass: allow suffix rules (".ir") and root domains
-  const byp = normalizeListForPac(bypassSites, { reduceToRoot: true });
+  // Include: root domains
+  const inc = normalizeListForPac(Array.isArray(includeSites) ? includeSites : [], { reduceToRoot: true });
+
+  // Bypass: allow suffix rules (".ir") and preserve exact hosts/domains
+  const byp = normalizeListForPac(Array.isArray(bypassSites) ? bypassSites : [], { reduceToRoot: false });
 
   const includeJson = JSON.stringify(inc);
   const bypassJson = JSON.stringify(byp);
 
   return `
-var PROXY = "SOCKS5 ${proxyHost}:${proxyPort}; DIRECT";
+var PROXY = "SOCKS5 ${safeProxyHost}:${safeProxyPort}; DIRECT";
 var DIRECT = "DIRECT";
-var MODE = "${mode}";
+var MODE = "${safeMode}";
 var INCLUDE = ${includeJson};
 var BYPASS = ${bypassJson};
 
@@ -127,8 +151,8 @@ function strEndsWith(value, suffix) {
 
 function hostMatches(host, rule) {
   if (!rule) return false;
-  host = (host || "").toLowerCase().replace(/\.$/, "");
-  rule = (rule || "").toLowerCase().replace(/\.$/, "");
+  host = (host || "").toLowerCase().replace(/\\.$/, "");
+  rule = (rule || "").toLowerCase().replace(/\\.$/, "");
   if (!host || !rule) return false;
 
   // Suffix rule: ".ir" means anything ending with ".ir"
@@ -163,7 +187,7 @@ function isLocalOrPrivate(host) {
 }
 
 function FindProxyForURL(url, host) {
-  host = (host || "").toLowerCase().trim().replace(/\.$/, "");
+  host = (host || "").toLowerCase().trim().replace(/\\.$/, "");
 
   // Always DIRECT for local/private networks
   if (isLocalOrPrivate(host)) return DIRECT;
