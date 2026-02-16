@@ -1,136 +1,146 @@
-# 🚀 Socks5 Traffic Manager
+````markdown
+# 🚀 **Socks5 Traffic Manager**
 
-Socks5 Traffic Manager is a powerful Chrome extension for advanced SOCKS5 proxy control.
-
-It allows you to intelligently route selected domains — or all traffic — through a SOCKS5 proxy using dynamic PAC generation, include/bypass lists, and optimized domain matching.
-
-Built for flexibility, performance, and reliability.
+**Socks5 Traffic Manager** is a powerful Chrome extension for advanced SOCKS5 routing — built for flexibility, reliability, and performance.  
+It dynamically generates a **PAC (Proxy Auto-Config)** script, allowing you to proxy selected domains or all traffic intelligently.
 
 ---
 
-## ✨ Features
+## ✨ **Features**
 
-- 🔌 One-click Enable / Disable
-- 🌍 Global Mode (Proxy all traffic except bypass list)
-- 🎯 Selected Mode (Proxy only included domains)
-- 📜 Include & Bypass lists (multi-format input support)
-- 🌐 Supports TLD rules like `.ir`
-- 🧠 Intelligent root-domain detection (supports bbc.co.uk style domains)
-- 🔐 IDN-safe (Unicode → ASCII normalization)
-- ⚡ Auto-save after inactivity
-- 🕶 Incognito support
-- 🎛 Modern, clean UI
-- 🛠 Manifest v3 compatible
-
----
-
-## 🧩 How It Works
-
-The extension dynamically generates a PAC (Proxy Auto-Config) script based on:
-
-- Proxy Host & Port
-- Selected Mode (Global / Selected)
-- Include List
-- Bypass List
-
-### Smart Behavior
-
-- Local/private networks are never proxied
-- Bypass list always overrides everything
-- Intelligent subdomain matching
-- ASCII-only PAC generation for Chrome compatibility
-- Lightweight root-domain detection (eTLD+1 heuristic)
+- ⚡ **One-click enable/disable** from popup and options page  
+- 🌐 **Two routing modes:**
+  - `Selected` → proxy only included domains  
+  - `All` → proxy everything except bypass rules  
+- 🧠 **Intelligent root-domain detection** (`eTLD+1` heuristic, e.g. `bbc.co.uk`)  
+- 🧩 **Flexible include & bypass lists**  
+  - Supports `.ir` suffix rules  
+  - Multi-format input (newline, comma, semicolon, tab, or space-separated)  
+- 💾 **Auto-save** after 5s inactivity + manual **“Save Now”** button  
+- 📤 **Import / Export** lists as text file  
+- 🧹 **Duplicate cleanup** with warnings (keeps the last occurrence)  
+- 🔒 **Proxy validation** (domain, IPv4, IPv6, `localhost`)  
+- 🌍 **IDN-safe** with Unicode → ASCII normalization  
+- 🏠 Local/private destinations always `DIRECT`  
+- 🧭 **Dynamic toolbar icon + badge** (`ON`/`OFF`) + tooltip with current mode  
+- 🧰 **Manifest v3 compatible** + incognito support  
 
 ---
 
-## 📦 Installation (Manual)
+## ⚙️ **Routing Behavior**
 
-1. Clone or download this repository:
+**PAC decision order:**
 
-```bash
-git clone https://github.com/sinaojaghi/socks5-traffic-manager.git
-```
+1. Local/private host → `DIRECT`  
+2. Host matches bypass rule → `DIRECT`  
+3. Mode = `all` → `SOCKS5 ...; DIRECT`  
+4. Mode = `selected` + host in include list → `SOCKS5 ...; DIRECT`  
+5. Otherwise → `DIRECT`
 
-2. Open Chrome and navigate to:
+**Matching notes:**
 
-```
-chrome://extensions/
-```
+- Include rules are normalized and matched as registrable/root domains.  
+- Bypass rules can include suffixes like `.ir`.  
+- Subdomains automatically match parent domains (e.g. `api.example.com` → `example.com`).  
 
+---
+
+## 🧩 **Installation (Manual)**
+
+1. Clone or download this repository  
+   ```bash
+   git clone https://github.com/sinaojaghi/socks5-traffic-manager.git
+````
+
+2. Open **`chrome://extensions/`**
 3. Enable **Developer Mode**
-
 4. Click **Load unpacked**
-
-5. Select the project folder
-
-Done ✅
+5. Select this folder → `socks5-traffic-manager-main`
+   *(Ensure `manifest.json` is inside this folder)*
 
 ---
 
-## ⚙ Configuration
+## 🔧 **Configuration**
 
 ### Proxy Settings
 
-- Proxy Host (example: `127.0.0.1`)
-- Proxy Port (example: `10808`)
+* **Proxy Host:** `127.0.0.1`, `localhost`, or IPv6 (`2001:db8::1`)
+* **Proxy Port:** `1–65535` (default: `10808`)
 
 ### Modes
 
-**Selected Mode**
-→ Only domains in the Include list go through the proxy.
+* 🟢 **Selected mode:** only included sites are proxied
+* 🌍 **Global mode:** all traffic is proxied except bypassed sites
 
-**Global Mode**
-→ All traffic goes through proxy except domains in Bypass list.
+### Example Lists
 
-### Include / Bypass Lists
-
-- One domain per line
-- Supports:
-  - `google.com`
-  - `bbc.co.uk`
-  - `.ir` (TLD rule)
-  - `sub.example.com`
+```
+google.com
+sub.example.com
+bbc.co.uk
+.ir
+```
 
 ---
 
-## 🛡 Security Notes
+## 📤 **Import / Export Format**
 
-- Local and private IP ranges are always excluded.
-- PAC script is generated dynamically and remains ASCII-safe.
-- No external servers or tracking.
-- No data collection.
+**Exported file example:**
 
----
+```text
+Include List:
+example.com
+sub.example.com
 
-## 🛠 Tech Stack
+Bypass List:
+.ir
+localhost
+```
 
-- Chrome Extension (Manifest v3)
-- JavaScript (Service Worker)
-- Chrome Proxy API
-- Chrome Storage API
-- PAC Script (SOCKS5)
-
----
-
-## 📌 Roadmap
-
-- [ ] Per-profile proxy support
-- [ ] Proxy authentication support
-- [ ] Rule import/export improvements
-- [ ] Chrome Web Store release
+If imported text does **not** contain `Include List:` / `Bypass List:` headers,
+the entire content will be treated as the **Include List**.
 
 ---
 
-## 👨‍💻 Author
+## 🛡️ **Security & Privacy**
 
-Created by **sinaojaghi**  
-GitHub: https://github.com/sinaojaghi  
-
-Built with assistance from ChatGPT.
+* 🚫 No external API calls
+* 🚫 No telemetry or tracking
+* 🚫 No data collection
+* ✅ All logic runs **locally** in the extension
 
 ---
 
-## 📄 License
+## 🧠 **Tech Stack**
 
-This project is licensed under the MIT License.  
-See the LICENSE file for details.
+* Chrome Extension (Manifest v3)
+* JavaScript (Service Worker + Options/Popup scripts)
+* Chrome Proxy API
+* Chrome Storage API
+* PAC Script (`SOCKS5 ...; DIRECT`)
+
+---
+
+## 🗺️ **Roadmap**
+
+* [ ] Per-profile proxy support
+* [ ] Proxy authentication support
+* [ ] Rule import/export improvements
+* [ ] Chrome Web Store release
+
+---
+
+## 👨‍💻 **Author**
+
+Created by **sinaojaghi**
+🔗 GitHub: [https://github.com/sinaojaghi/socks5-traffic-manager](https://github.com/sinaojaghi/socks5-traffic-manager)
+
+---
+
+## 📄 **License**
+
+Licensed under the **MIT License**
+See the `LICENSE` file for details.
+
+```
+```
