@@ -11,6 +11,87 @@ const DEFAULT_SETTINGS = {
   bypassSites: []
 };
 
+function isValidIpv4(host) {
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host || "")) return false;
+  const parts = host.split(".");
+  for (const part of parts) {
+    const n = Number(part);
+    if (!Number.isInteger(n) || n < 0 || n > 255) return false;
+  }
+  return true;
+}
+
+function isValidIpv6(host) {
+  const h = (host || "").toLowerCase().trim();
+  if (!h || !h.includes(":")) return false;
+  if (!/^[0-9a-f:.]+$/.test(h)) return false;
+  try {
+    new URL(`http://[${h}]`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isValidDomainLikeHost(host) {
+  const h = (host || "").toLowerCase().trim().replace(/\.$/, "");
+  if (!h || h.length > 253) return false;
+
+  const labels = h.split(".");
+  for (const label of labels) {
+    if (!label || label.length > 63) return false;
+    if (!/^[a-z0-9-]+$/.test(label)) return false;
+    if (label.startsWith("-") || label.endsWith("-")) return false;
+  }
+
+  return true;
+}
+
+function isValidSuffixRule(rule) {
+  const r = (rule || "").trim().toLowerCase().replace(/\.$/, "");
+  if (!r.startsWith(".")) return false;
+  const body = r.slice(1);
+  return !!body && /[a-z]/.test(body) && isValidDomainLikeHost(body);
+}
+
+function isValidHostToken(host) {
+  const h = (host || "").toLowerCase().trim().replace(/\.$/, "");
+  if (!h) return false;
+  if (h === "localhost") return true;
+  if (isValidIpv4(h)) return true;
+
+  if (h.startsWith("[") && h.endsWith("]")) {
+    return isValidIpv6(h.slice(1, -1));
+  }
+  if (h.includes(":")) return isValidIpv6(h);
+
+  return isValidDomainLikeHost(h);
+}
+
+function isIpLiteral(host) {
+  const h = (host || "").trim();
+  if (!h) return false;
+  if (h.startsWith("[") && h.endsWith("]")) {
+    return isValidIpv6(h.slice(1, -1));
+  }
+  return isValidIpv4(h) || isValidIpv6(h);
+}
+
+function stripTrailingPortIfPresent(value) {
+  let s = String(value || "");
+  if (!s) return s;
+
+  if (s.startsWith("[")) {
+    return s.replace(/\]:(\d+)$/, "]");
+  }
+
+  const colonCount = (s.match(/:/g) || []).length;
+  if (colonCount <= 1) {
+    return s.replace(/:\d+$/, "");
+  }
+  return s;
+}
+
 // -------------------- Formatting (SAFE, does NOT break Enter) --------------------
 // Only replace these separators: comma, semicolon, Persian comma, and tabs.
 // We do NOT treat '.' or ':' as separators (they break domains/URLs).
@@ -69,6 +150,31 @@ function cleanupLines(text) {
     .join("\n");
 }
 
+function dedupeKeepLast(items) {
+  const input = Array.isArray(items) ? items : [];
+  const lastIndexByItem = new Map();
+  const countByItem = new Map();
+
+  input.forEach((item, idx) => {
+    lastIndexByItem.set(item, idx);
+    countByItem.set(item, (countByItem.get(item) || 0) + 1);
+  });
+
+  const uniqueOrdered = [];
+  input.forEach((item, idx) => {
+    if (lastIndexByItem.get(item) === idx) {
+      uniqueOrdered.push(item);
+    }
+  });
+
+  const duplicates = [];
+  countByItem.forEach((count, item) => {
+    if (count > 1) duplicates.push(item);
+  });
+
+  return { items: uniqueOrdered, duplicates };
+}
+
 // -------------------- Domain normalization (IDN-safe + root-domain + suffix rules) --------------------
 function normalizeSuffixRule(raw) {
   let s = (raw || "").trim();
@@ -76,8 +182,8 @@ function normalizeSuffixRule(raw) {
   s = s.replace(/^["']|["']$/g, "").trim();
   if (s.startsWith("*.")) s = s.slice(1); // "*.ir" -> ".ir"
   if (s.startsWith(".")) {
-    s = s.toLowerCase().replace(/[^\x00-\x7F]/g, "");
-    return s.startsWith(".") ? s : "";
+    s = s.toLowerCase().replace(/[^\x00-\x7F]/g, "").replace(/\.$/, "");
+    return isValidSuffixRule(s) ? s : "";
   }
   return "";
 }
@@ -96,22 +202,24 @@ function toAsciiHostnameFromInput(raw) {
     const u = new URL(candidate);
     let host = (u.hostname || "").toLowerCase().trim();
     host = host.replace(/\.$/, "");
-    return host; // punycode for IDN
+    return isValidHostToken(host) ? host : "";
   } catch {
     // fallback cleanup
     s = s.toLowerCase();
     s = s.replace(/^https?:\/\//, "");
     s = s.replace(/\/.*$/, "");
-    s = s.replace(/:\d+$/, "");
+    s = stripTrailingPortIfPresent(s);
     s = s.replace(/\.$/, "");
     s = s.trim();
     if (!s) return "";
 
     try {
       const u2 = new URL(`https://${s}`);
-      return (u2.hostname || "").toLowerCase().replace(/\.$/, "");
+      const host2 = (u2.hostname || "").toLowerCase().replace(/\.$/, "");
+      return isValidHostToken(host2) ? host2 : "";
     } catch {
-      return s.replace(/[^\x00-\x7F]/g, "");
+      const asciiHost = s.replace(/[^\x00-\x7F]/g, "");
+      return isValidHostToken(asciiHost) ? asciiHost : "";
     }
   }
 }
@@ -125,20 +233,19 @@ function fallbackHostToken(raw) {
   s = s.toLowerCase();
   s = s.replace(/^https?:\/\//, "");
   s = s.replace(/\/.*$/, "");
-  s = s.replace(/:\d+$/, "");
+  s = stripTrailingPortIfPresent(s);
   s = s.replace(/\.$/, "");
   s = s.replace(/[^\x00-\x7F]/g, "");
   s = s.trim();
 
-  // Keep a conservative host-like token only.
-  if (!/^[a-z0-9.-]+$/.test(s)) return "";
-  return s;
+  return isValidHostToken(s) ? s : "";
 }
 
 function registrableDomain(host) {
   host = (host || "").toLowerCase().replace(/\.$/, "");
   if (!host) return host;
   if (host.startsWith(".")) return host;
+  if (isIpLiteral(host)) return host;
 
   const parts = host.split(".").filter(Boolean);
   if (parts.length <= 2) return host;
@@ -170,11 +277,10 @@ function normalizeEntry(raw, { allowSuffixRule = false, reduceToRoot = true } = 
 function parseDomainList(text, { allowSuffixRule = false, reduceToRoot = true } = {}) {
   const cleanedText = cleanupLines(text);
   const lines = cleanedText.split("\n");
-  const cleaned = lines
+  const normalized = lines
     .map((x) => normalizeEntry(x, { allowSuffixRule, reduceToRoot }))
     .filter(Boolean);
-
-  return Array.from(new Set(cleaned));
+  return dedupeKeepLast(normalized);
 }
 
 // -------------------- UI helpers --------------------
@@ -182,6 +288,21 @@ function setStatus(text, cls) {
   const el = document.getElementById("status");
   el.textContent = text || "";
   el.className = `status ${cls || ""}`.trim();
+}
+
+function setListWarning(id, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text || "";
+}
+
+function buildDuplicateWarningText(duplicates) {
+  if (!Array.isArray(duplicates) || duplicates.length === 0) return "";
+  const preview = duplicates.slice(0, 3).join(", ");
+  const moreCount = Math.max(0, duplicates.length - 3);
+  const moreText = moreCount > 0 ? ` (+${moreCount} more)` : "";
+  const verb = duplicates.length === 1 ? "was" : "were";
+  return `Warning: duplicate item${duplicates.length === 1 ? "" : "s"} ${verb} removed and re-added at the end (${preview}${moreText}).`;
 }
 
 function updateToggleUI(enabled) {
@@ -219,8 +340,8 @@ function fingerprintSettings(s) {
     proxyHost: (s.proxyHost || "127.0.0.1"),
     proxyPort: Number(s.proxyPort),
     mode: s.mode,
-    includeSites: (s.includeSites || []).slice().sort(),
-    bypassSites: (s.bypassSites || []).slice().sort()
+    includeSites: (s.includeSites || []).slice(),
+    bypassSites: (s.bypassSites || []).slice()
   });
 }
 
@@ -293,13 +414,21 @@ async function loadSettings() {
 
   setSelectedMode(data.mode || "selected");
   updateToggleUI(!!data.enabled);
+  setListWarning("includeWarn", "");
+  setListWarning("bypassWarn", "");
 
   lastSavedFingerprint = fingerprintSettings(data);
 }
 
 async function saveSettings({ isAuto = false } = {}) {
-  const proxyHost = (document.getElementById("proxyHost").value || "").trim() || "127.0.0.1";
+  const proxyHostInput = (document.getElementById("proxyHost").value || "").trim() || "127.0.0.1";
+  const proxyHost = normalizeEntry(proxyHostInput, { allowSuffixRule: false, reduceToRoot: false });
   const proxyPort = Number(document.getElementById("proxyPort").value || 10808);
+
+  if (!proxyHost) {
+    setStatus("Invalid proxy host.", "err");
+    return;
+  }
 
   if (!Number.isFinite(proxyPort) || proxyPort <= 0 || proxyPort > 65535) {
     setStatus("Invalid port number.", "err");
@@ -311,8 +440,19 @@ async function saveSettings({ isAuto = false } = {}) {
   // Parse + normalize:
   // - Include: keep entered host/domain in settings UI; PAC reduces to root internally
   // - Bypass: exact host/domain + suffix rules like ".ir"
-  const includeSites = parseDomainList(document.getElementById("includeSites").value, { allowSuffixRule: false, reduceToRoot: false });
-  const bypassSites = parseDomainList(document.getElementById("bypassSites").value, { allowSuffixRule: true, reduceToRoot: false });
+  const includeParsed = parseDomainList(document.getElementById("includeSites").value, {
+    allowSuffixRule: false,
+    reduceToRoot: false
+  });
+  const bypassParsed = parseDomainList(document.getElementById("bypassSites").value, {
+    allowSuffixRule: true,
+    reduceToRoot: false
+  });
+  const includeSites = includeParsed.items;
+  const bypassSites = bypassParsed.items;
+
+  setListWarning("includeWarn", buildDuplicateWarningText(includeParsed.duplicates));
+  setListWarning("bypassWarn", buildDuplicateWarningText(bypassParsed.duplicates));
 
   // Keep current enabled state
   const current = await chrome.storage.sync.get({ enabled: false });
@@ -320,12 +460,19 @@ async function saveSettings({ isAuto = false } = {}) {
 
   const newSettings = { enabled, proxyHost, proxyPort, mode, includeSites, bypassSites };
   const fp = fingerprintSettings(newSettings);
-  if (fp === lastSavedFingerprint) return;
+  if (fp === lastSavedFingerprint) {
+    // Keep textareas normalized even if storage data is effectively unchanged.
+    document.getElementById("proxyHost").value = proxyHost;
+    document.getElementById("includeSites").value = includeSites.join("\n");
+    document.getElementById("bypassSites").value = bypassSites.join("\n");
+    return;
+  }
 
   await chrome.storage.sync.set(newSettings);
   lastSavedFingerprint = fp;
 
   // Reflect normalized lists back to UI
+  document.getElementById("proxyHost").value = proxyHost;
   document.getElementById("includeSites").value = includeSites.join("\n");
   document.getElementById("bypassSites").value = bypassSites.join("\n");
 
@@ -423,7 +570,7 @@ importFile.addEventListener("change", async () => {
     document.getElementById("includeSites").value = includeText;
     document.getElementById("bypassSites").value = bypassText;
 
-    // Trigger save so it normalizes to root domains and applies
+    // Trigger save so it normalizes and applies
     await saveSettings({ isAuto: false });
     setStatus("Imported and saved successfully.", "ok");
     setTimeout(() => setStatus("", ""), 1500);

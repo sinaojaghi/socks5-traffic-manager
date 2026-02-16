@@ -159,6 +159,14 @@
       line-height: 1.6;
       margin-top: 10px;
     }
+    .listWarning {
+      text-align: left;
+      color: #f59e0b;
+      font-size: 12px;
+      line-height: 1.5;
+      min-height: 18px;
+      margin-top: 8px;
+    }
 
     .actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
     .btn {
@@ -252,6 +260,7 @@
           <div class="hint">
             You can paste with commas/semicolons/spaces. Enter (new line) works normally.
           </div>
+          <div class="listWarning" id="includeWarn"></div>
         </div>
 
         <div class="field">
@@ -260,6 +269,7 @@
           <div class="hint">
             Supports suffix rules like <b>.ir</b>. Enter (new line) works normally.
           </div>
+          <div class="listWarning" id="bypassWarn"></div>
         </div>
       </div>
 

@@ -14,6 +14,95 @@ const DEFAULT_SETTINGS = {
 
 const COMMON_SECOND_LEVEL = new Set(["co", "com", "net", "org", "gov", "edu", "ac"]);
 
+function isValidIpv4(host) {
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host || "")) return false;
+  const parts = host.split(".");
+  for (const part of parts) {
+    const n = Number(part);
+    if (!Number.isInteger(n) || n < 0 || n > 255) return false;
+  }
+  return true;
+}
+
+function isValidIpv6(host) {
+  const h = (host || "").toLowerCase().trim();
+  if (!h || !h.includes(":")) return false;
+  if (!/^[0-9a-f:.]+$/.test(h)) return false;
+  try {
+    new URL(`http://[${h}]`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isValidDomainLikeHost(host) {
+  const h = (host || "").toLowerCase().trim().replace(/\.$/, "");
+  if (!h || h.length > 253) return false;
+
+  const labels = h.split(".");
+  for (const label of labels) {
+    if (!label || label.length > 63) return false;
+    if (!/^[a-z0-9-]+$/.test(label)) return false;
+    if (label.startsWith("-") || label.endsWith("-")) return false;
+  }
+
+  return true;
+}
+
+function isValidSuffixRule(rule) {
+  const r = (rule || "").trim().toLowerCase().replace(/\.$/, "");
+  if (!r.startsWith(".")) return false;
+  const body = r.slice(1);
+  return !!body && /[a-z]/.test(body) && isValidDomainLikeHost(body);
+}
+
+function isValidHostToken(host) {
+  const h = (host || "").toLowerCase().trim().replace(/\.$/, "");
+  if (!h) return false;
+  if (h === "localhost") return true;
+  if (isValidIpv4(h)) return true;
+
+  if (h.startsWith("[") && h.endsWith("]")) {
+    return isValidIpv6(h.slice(1, -1));
+  }
+  if (h.includes(":")) return isValidIpv6(h);
+
+  return isValidDomainLikeHost(h);
+}
+
+function isIpLiteral(host) {
+  const h = (host || "").trim();
+  if (!h) return false;
+  if (h.startsWith("[") && h.endsWith("]")) {
+    return isValidIpv6(h.slice(1, -1));
+  }
+  return isValidIpv4(h) || isValidIpv6(h);
+}
+
+function stripTrailingPortIfPresent(value) {
+  let s = String(value || "");
+  if (!s) return s;
+
+  if (s.startsWith("[")) {
+    return s.replace(/\]:(\d+)$/, "]");
+  }
+
+  const colonCount = (s.match(/:/g) || []).length;
+  if (colonCount <= 1) {
+    return s.replace(/:\d+$/, "");
+  }
+  return s;
+}
+
+function formatProxyHostForPac(host) {
+  const h = (host || "").trim();
+  if (!h) return h;
+  if (h.startsWith("[") && h.endsWith("]")) return h;
+  if (isValidIpv6(h)) return `[${h}]`;
+  return h;
+}
+
 function setIcon(enabled) {
   const state = enabled ? "enabled" : "disabled";
   chrome.action.setIcon({
@@ -43,18 +132,20 @@ function isAsciiOnly(s) {
 
 // Converts Unicode hostnames to ASCII (Punycode) via URL normalization.
 // Also supports suffix rules like ".ir".
-function toAsciiHostname(host) {
+function toAsciiHostname(host, { allowSuffixRule = false } = {}) {
   if (!host) return "";
   let s = String(host).trim();
   if (!s) return "";
 
   s = s.replace(/^["']|["']$/g, "").trim();
-  s = s.replace(/^\*\./, "");
+  if (s.startsWith("*.")) {
+    s = allowSuffixRule ? `.${s.slice(2)}` : s.slice(2);
+  }
 
   // Suffix rule like ".ir"
-  if (s.startsWith(".")) {
-    const suffix = s.toLowerCase().replace(/[^\x00-\x7F]/g, "");
-    return suffix.startsWith(".") ? suffix : "";
+  if (allowSuffixRule && s.startsWith(".")) {
+    const suffix = s.toLowerCase().replace(/[^\x00-\x7F]/g, "").replace(/\.$/, "");
+    return isValidSuffixRule(suffix) ? suffix : "";
   }
 
   const hasScheme = /^[a-zA-Z][a-zA-Z0-9+\-.]*:\/\//.test(s);
@@ -62,12 +153,13 @@ function toAsciiHostname(host) {
 
   try {
     const u = new URL(candidate);
-    return (u.hostname || "").toLowerCase().replace(/\.$/, "");
+    const hostname = (u.hostname || "").toLowerCase().replace(/\.$/, "");
+    return isValidHostToken(hostname) ? hostname : "";
   } catch {
     s = s.toLowerCase();
     s = s.replace(/^https?:\/\//, "");
     s = s.replace(/\/.*$/, "");
-    s = s.replace(/:\d+$/, "");
+    s = stripTrailingPortIfPresent(s);
     s = s.replace(/\.$/, "");
     s = s.trim();
     if (!s) return "";
@@ -77,9 +169,10 @@ function toAsciiHostname(host) {
 
     try {
       const u2 = new URL(`https://${stripped}`);
-      return (u2.hostname || "").toLowerCase().replace(/\.$/, "");
+      const hostname2 = (u2.hostname || "").toLowerCase().replace(/\.$/, "");
+      return isValidHostToken(hostname2) ? hostname2 : "";
     } catch {
-      return stripped;
+      return isValidHostToken(stripped) ? stripped : "";
     }
   }
 }
@@ -96,6 +189,7 @@ function registrableDomain(host) {
 
   // Do not change suffix rules like ".ir"
   if (host.startsWith(".")) return host;
+  if (isIpLiteral(host)) return host;
 
   const parts = host.split(".").filter(Boolean);
   if (parts.length <= 2) return host;
@@ -111,9 +205,9 @@ function registrableDomain(host) {
   return parts.slice(-2).join(".");
 }
 
-function normalizeListForPac(list, { reduceToRoot = true } = {}) {
+function normalizeListForPac(list, { reduceToRoot = true, allowSuffixRule = false } = {}) {
   const cleaned = (list || [])
-    .map((x) => toAsciiHostname(x))
+    .map((x) => toAsciiHostname(x, { allowSuffixRule }))
     .map((x) => (reduceToRoot ? registrableDomain(x) : x))
     .filter(Boolean);
 
@@ -122,23 +216,31 @@ function normalizeListForPac(list, { reduceToRoot = true } = {}) {
 
 function buildPacScript({ proxyHost, proxyPort, mode, includeSites, bypassSites }) {
   const safeProxyHost = toAsciiHostname(proxyHost) || "127.0.0.1";
+  const proxyHostForPac = formatProxyHostForPac(safeProxyHost);
   const numericPort = Number(proxyPort);
   const safeProxyPort = Number.isFinite(numericPort) && numericPort > 0 && numericPort <= 65535
     ? Math.floor(numericPort)
     : 10808;
   const safeMode = mode === "all" ? "all" : "selected";
+  const proxyValue = JSON.stringify(`SOCKS5 ${proxyHostForPac}:${safeProxyPort}; DIRECT`);
 
   // Include: root domains
-  const inc = normalizeListForPac(Array.isArray(includeSites) ? includeSites : [], { reduceToRoot: true });
+  const inc = normalizeListForPac(Array.isArray(includeSites) ? includeSites : [], {
+    reduceToRoot: true,
+    allowSuffixRule: false
+  });
 
   // Bypass: allow suffix rules (".ir") and preserve exact hosts/domains
-  const byp = normalizeListForPac(Array.isArray(bypassSites) ? bypassSites : [], { reduceToRoot: false });
+  const byp = normalizeListForPac(Array.isArray(bypassSites) ? bypassSites : [], {
+    reduceToRoot: false,
+    allowSuffixRule: true
+  });
 
   const includeJson = JSON.stringify(inc);
   const bypassJson = JSON.stringify(byp);
 
   return `
-var PROXY = "SOCKS5 ${safeProxyHost}:${safeProxyPort}; DIRECT";
+var PROXY = ${proxyValue};
 var DIRECT = "DIRECT";
 var MODE = "${safeMode}";
 var INCLUDE = ${includeJson};
@@ -207,43 +309,55 @@ function FindProxyForURL(url, host) {
 }
 
 async function applySettings() {
-  const data = await chrome.storage.sync.get(DEFAULT_SETTINGS);
+  try {
+    const data = await chrome.storage.sync.get(DEFAULT_SETTINGS);
 
-  // Icon + badge + tooltip
-  setIcon(!!data.enabled);
-  updateActionUi({ enabled: !!data.enabled, mode: data.mode || "selected" });
+    // Icon + badge + tooltip
+    setIcon(!!data.enabled);
+    updateActionUi({ enabled: !!data.enabled, mode: data.mode || "selected" });
 
-  if (!data.enabled) {
-    chrome.proxy.settings.clear({ scope: "regular" }, () => {});
-    return;
-  }
-
-  const pacData = buildPacScript({
-    proxyHost: data.proxyHost,
-    proxyPort: data.proxyPort,
-    mode: data.mode,
-    includeSites: data.includeSites,
-    bypassSites: data.bypassSites
-  });
-
-  // PAC script must be ASCII-only
-  if (!isAsciiOnly(pacData)) {
-    console.error("PAC script contains non-ASCII characters. Refusing to apply.");
-    return;
-  }
-
-  chrome.proxy.settings.set(
-    {
-      value: {
-        mode: "pac_script",
-        pacScript: { data: pacData }
-      },
-      scope: "regular"
-    },
-    () => {
-      // If Chrome rejects PAC, it appears in runtime.lastError in service worker logs.
+    if (!data.enabled) {
+      chrome.proxy.settings.clear({ scope: "regular" }, () => {
+        const err = chrome.runtime.lastError;
+        if (err) {
+          console.error("Failed to clear proxy settings:", err.message);
+        }
+      });
+      return;
     }
-  );
+
+    const pacData = buildPacScript({
+      proxyHost: data.proxyHost,
+      proxyPort: data.proxyPort,
+      mode: data.mode,
+      includeSites: data.includeSites,
+      bypassSites: data.bypassSites
+    });
+
+    // PAC script must be ASCII-only
+    if (!isAsciiOnly(pacData)) {
+      console.error("PAC script contains non-ASCII characters. Refusing to apply.");
+      return;
+    }
+
+    chrome.proxy.settings.set(
+      {
+        value: {
+          mode: "pac_script",
+          pacScript: { data: pacData }
+        },
+        scope: "regular"
+      },
+      () => {
+        const err = chrome.runtime.lastError;
+        if (err) {
+          console.error("Failed to apply PAC proxy settings:", err.message);
+        }
+      }
+    );
+  } catch (error) {
+    console.error("Failed to apply settings:", error);
+  }
 }
 
 // If you remove default_popup and want icon click to open options, keep this.
