@@ -115,9 +115,9 @@ googleusercontent.com
 gvt2.com
 google.com
 twitter.com
-x.com
 t.me
 wa.me
+x.com
 twimg.com
 t.co
 medium.com
@@ -151,6 +151,15 @@ yektanet.com
 kiingmovie.com
 propensity-abm.com
 appcenter.ms
+bbc.com
+manototv.com
+voanews.com
+iranintl.com
+aljazeera.com
+cnn.com
+nytimes.com
+theguardian.com
+foxnews.com
 
 Bypass List:
 .ir
