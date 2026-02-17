@@ -117,6 +117,7 @@ google.com
 twitter.com
 t.me
 wa.me
+web.whatsapp.com
 x.com
 twimg.com
 t.co
