@@ -1,109 +1,135 @@
 # 🚀 Socks5 Traffic Manager
 
-Socks5 Traffic Manager is a powerful Chrome extension for advanced SOCKS5 proxy control.
+Socks5 Traffic Manager is a Chrome extension for advanced SOCKS5 proxy routing.
 
-It allows you to intelligently route selected domains — or all traffic — through a SOCKS5 proxy using dynamic PAC generation, include/bypass lists, and optimized domain matching.
-
-Built for flexibility, performance, and reliability.
+It lets you intelligently route **only selected domains** (Include mode) or **all traffic** (Global mode) through a SOCKS5 proxy using an **auto-generated PAC (Proxy Auto-Config) script**, with strong normalization, smart domain matching, and quick controls. 
 
 ---
 
 ## ✨ Features
 
-* 🔌 One-click Enable / Disable
-* 🌍 Global Mode (Proxy all traffic except bypass list)
-* 🎯 Selected Mode (Proxy only included domains)
-* 📜 Include & Bypass lists (multi-format input support)
-* 🌐 Supports TLD rules like `.ir`
-* 🧠 Intelligent root-domain detection (supports bbc.co.uk style domains)
-* 🔐 IDN-safe (Unicode → ASCII normalization)
-* ⚡ Auto-save after inactivity
-* 💾 Manual "Save Now" button
-* 📤 Import / Export lists as text file
-* 🧹 Duplicate cleanup with warning (keeps the last occurrence)
-* 🏠 Local/private destinations always DIRECT
-* 🔒 Proxy host validation for domain, IPv4, IPv6, and localhost
-* 🧭 Dynamic toolbar icon + badge (ON/OFF) + tooltip with current mode
-* 🕶 Incognito support
-* 🛠 Manifest v3 compatible
+### Core proxy control
+
+* 🔌 **One-click Enable / Disable** (Options + Popup)
+* 🌍 **Global Mode**: proxy all traffic **except** Bypass list 
+* 🎯 **Selected Mode**: proxy **only** Include list domains 
+* 🧭 **Toolbar badge + tooltip** updates (ON/OFF + current mode) + **dynamic icon** 
+* 🕶 **Incognito support** (spanning) 
+
+### Lists, rules, and matching
+
+* 📜 **Include & Bypass lists** with strong parsing and normalization
+* 🌐 **TLD/Suffix rules** supported in Bypass list (example: `.ir`)
+* 🧠 **Smart root-domain detection** (eTLD+1 heuristic; supports `bbc.co.uk` style)
+* 🔐 **IDN-safe normalization** (Unicode → ASCII where possible) and **ASCII-only PAC safety check**
+* 🧹 **De-duplicate rules** while keeping the *last occurrence* (with UI warnings) 
+* 🏠 **Local/private destinations always DIRECT** (never proxied) 
+
+### UX improvements
+
+* ⚡ **Auto-save after 5 seconds of inactivity** + Manual **Save Now**
+* 🧾 **Paste-friendly list input**:
+
+  * Converts commas / semicolons / Persian comma / tabs into new lines
+  * Converts **space-separated** tokens into lines **only when it is a single-line paste** (so normal Enter behavior stays intact) 
+* 📤 **Import / Export** lists as a text file (`proxy-lists.txt`)
+* ⚡ **Fast Import** from popup: add current tab domain to Include or Bypass in one click
 
 ---
 
 ## 🧩 How It Works
 
-The extension dynamically generates a PAC (Proxy Auto-Config) script based on:
+The extension builds a PAC script based on:
 
 * Proxy Host & Port
-* Selected Mode (Global / Selected)
+* Mode: Selected / Global
 * Include List
-* Bypass List
+* Bypass List 
 
-### Smart Behavior
+### Decision order (important)
 
-* Local/private networks are never proxied
-* Bypass list always overrides everything
-* Intelligent subdomain and root-domain matching
-* ASCII-only PAC generation for Chrome compatibility
-* Lightweight root-domain detection (eTLD+1 heuristic)
-* IDN-safe normalization (Unicode → ASCII)
-
----
-
-## 📦 Installation (Manual)
-
-1. Clone or download this repository:
-
-```bash
-git clone https://github.com/sinaojaghi/socks5-traffic-manager.git
-```
-
-2. Open Chrome and navigate to:
-
-```
-chrome://extensions/
-```
-
-3. Enable **Developer Mode**
-
-4. Click **Load unpacked**
-
-5. Select the project folder
-
-Done ✅
+1. Local/private or plain hostnames → `DIRECT`
+2. If host matches **Bypass** list (including suffix rules) → `DIRECT`
+3. Smart bypass roots: if a host is bypassed, its registrable/root domain may be treated as bypass too (helps with subdomains) 
+4. If mode = **Global** → `PROXY`
+5. If mode = **Selected** and host matches Include → `PROXY`
+6. Otherwise → `DIRECT` 
 
 ---
 
-## ⚙ Configuration
+## ⚙️ Configuration
 
 ### Proxy Settings
 
-* Proxy Host (example: `127.0.0.1`, `localhost`, or `2001:db8::1`)
-* Proxy Port (example: `10808`)
+* **Proxy Host**: supports domain, `localhost`, IPv4, IPv6
+
+  * IPv6 is handled safely (including bracket formatting inside PAC when needed).
+* **Proxy Port**: validated (1–65535).
 
 ### Modes
 
-**Selected Mode**
-→ Only domains in the Include list go through the proxy.
-
-**Global Mode**
-→ All traffic goes through proxy except domains in Bypass list.
-
-### Include / Bypass Lists
-
-* One domain per line
-* Supports:
-
-  * `google.com`
-  * `bbc.co.uk`
-  * `.ir` (TLD rule)
-  * `sub.example.com`
-* Multi-format input supported (newline, comma, semicolon, tab, space-separated)
+* **Selected Mode** → only Include list goes through proxy
+* **Global Mode** → everything proxied except Bypass list
 
 ---
 
-## 📤 Import / Export Format
+## 🧾 Include & Bypass List Rules
 
-Exported file example:
+### Accepted inputs (Options page)
+
+You can type one per line, or paste using:
+
+* newline
+* comma `,`
+* semicolon `;`
+* Persian comma `،`
+* tab
+* single-line space-separated tokens (auto-splits to lines) 
+
+### Rule types
+
+**Domains / hosts**
+
+* `google.com`
+* `sub.example.com`
+* `bbc.co.uk`
+* `localhost`
+* `127.0.0.1`
+* `2001:db8::1`
+
+**Suffix rules (Bypass only)**
+
+* `.ir` → bypass all `.ir` and subdomains like `*.something.ir`
+
+**Wildcard handling**
+
+* `*.ir` becomes `.ir` (suffix rule)
+* `*.digikala.com` becomes `digikala.com` (domain rule)
+
+### Matching behavior (PAC)
+
+* Exact domain matches
+* Subdomain matches (example: rule `example.com` matches `a.b.example.com`)
+* Suffix rules: `.ir` matches `ir` and any `*.ir` 
+
+---
+
+## ⚡ Fast Import (Popup)
+
+In the popup, you can:
+
+* Choose target: **Add to Include** or **Add to Bypass**
+* Click **Add current tab** to import the *registrable/root domain* of the active tab (only `http/https` pages).
+
+This is ideal when you quickly want to route a site without opening the Options page.
+
+---
+
+## 📤 Import / Export
+
+### Export
+
+Exports a text file (`proxy-lists.txt`) with this structure: 
 
 ```text
 Include List:
@@ -115,44 +141,93 @@ Bypass List:
 localhost
 ```
 
-If imported text does not contain `Include List:` / `Bypass List:` headers,
-the entire content is treated as Include List.
+### Import
+
+* If the file includes `Include List:` / `Bypass List:` headers → it imports into both sections.
+* If headers are missing → the entire file is treated as the Include list. 
+
+You can also keep a curated file like the provided `proxy-lists.txt` and import it anytime. 
 
 ---
 
-## 🛡 Security Notes
+## 🛡 Security & Privacy Notes
 
-* Local and private IP ranges are always excluded.
-* PAC script is generated dynamically and remains ASCII-safe.
-* No external servers or tracking.
-* No data collection.
-* All logic runs locally within the extension.
+* ✅ No external servers, no telemetry, no tracking.
+* ✅ PAC is generated locally.
+* ✅ Local/private IP ranges are always DIRECT.
+* ✅ PAC is validated to be ASCII-only before applying (avoids Chrome PAC issues). 
+
+---
+
+## 📦 Installation (Manual)
+
+1. Download/clone the project folder.
+2. Open Chrome and go to:
+
+   * `chrome://extensions/`
+3. Enable **Developer mode**
+4. Click **Load unpacked**
+5. Select the extension folder
+
+Done ✅
+
+---
+
+## 🧪 Usage Tips
+
+* Prefer adding **root domains** to Include (example: `openai.com`) so all subdomains work.
+* Use Bypass for:
+
+  * Local services
+  * Banking or sensitive sites
+  * Whole TLD rules like `.ir`
 
 ---
 
 ## 🛠 Tech Stack
 
-* Chrome Extension (Manifest v3)
-* JavaScript (Service Worker + Options/Popup scripts)
+* Chrome Extension (Manifest v3 service worker)
+* JavaScript (Options + Popup + Background)
 * Chrome Proxy API
-* Chrome Storage API
-* PAC Script (SOCKS5)
+* Chrome Storage Sync API
+* PAC Script routing (SOCKS5 + DIRECT fallback)
 
 ---
 
-## 📌 Roadmap
+## 🧭 Troubleshooting
 
-* [ ] Per-profile proxy support
-* [ ] Proxy authentication support
-* [ ] Rule import/export improvements
-* [ ] Chrome Web Store release
+### Proxy does not apply
+
+* Make sure the extension is **Enabled** (badge ON).
+* Confirm your proxy app/server is listening on the configured host/port.
+* If PAC refuses to apply, check the console for:
+
+  * “PAC script contains non-ASCII characters” (usually caused by non-ASCII entries; lists are normalized to prevent this). 
+
+### Incognito not working
+
+* Go to `chrome://extensions/`
+* Open extension details
+* Enable **Allow in incognito**
+
+---
+
+## 📌 Changelog Highlights
+
+### v1.6.0
+
+* Fast Import in popup (add current tab to Include/Bypass)
+* Safer list parsing (preserves Enter behavior, smarter paste splitting)
+* Better normalization (IDN-safe, wildcard handling, suffix rules)
+* Duplicate cleanup warnings in UI
+* Improved action badge/icon/tooltip updates
 
 ---
 
 ## 👨‍💻 Author
 
 Created by **sinaojaghi**
-GitHub: [https://github.com/sinaojaghi/socks5-traffic-manager](https://github.com/sinaojaghi/socks5-traffic-manager)
+GitHub: `https://github.com/sinaojaghi/socks5-traffic-manager`
 
 Built with assistance from ChatGPT.
 
@@ -160,5 +235,4 @@ Built with assistance from ChatGPT.
 
 ## 📄 License
 
-This project is licensed under the MIT License.
-See the LICENSE file for details.
+MIT License (add a `LICENSE` file if you want it included in the repository).
