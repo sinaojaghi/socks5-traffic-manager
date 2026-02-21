@@ -165,6 +165,7 @@ freedom.gov
 
 Bypass List:
 .ir
+scholar.google.com
 varzesh3.com
 digikala.com
 aparat.com
