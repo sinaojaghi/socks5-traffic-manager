@@ -115,11 +115,9 @@ function setIcon(enabled) {
 }
 
 function updateActionUi({ enabled, mode }) {
-  // Badge (visible on the toolbar icon)
   chrome.action.setBadgeText({ text: enabled ? "ON" : "OFF" });
   chrome.action.setBadgeBackgroundColor({ color: enabled ? "#22c55e" : "#6b7280" });
 
-  // Tooltip (visible on hover)
   const modeText = mode === "all" ? "ALL traffic" : "Selected sites";
   chrome.action.setTitle({
     title: `Socks5 Traffic Manager: ${enabled ? "ENABLED" : "DISABLED"} • Mode: ${modeText}`
@@ -130,19 +128,38 @@ function isAsciiOnly(s) {
   return /^[\x00-\x7F]*$/.test(s || "");
 }
 
-// Converts Unicode hostnames to ASCII (Punycode) via URL normalization.
-// Also supports suffix rules like ".ir".
+/**
+ * Converts Unicode hostnames to ASCII (Punycode) via URL normalization.
+ * Also supports suffix rules like ".ir" when allowSuffixRule=true
+ *
+ * مهم: رفتار wildcard اصلاح شده:
+ *  - "*.ir" => ".ir"
+ *  - "*.digikala.com" => "digikala.com"
+ */
 function toAsciiHostname(host, { allowSuffixRule = false } = {}) {
   if (!host) return "";
   let s = String(host).trim();
   if (!s) return "";
 
   s = s.replace(/^["']|["']$/g, "").trim();
-  if (s.startsWith("*.")) {
-    s = allowSuffixRule ? `.${s.slice(2)}` : s.slice(2);
-  }
+  if (!s) return "";
 
-  // Suffix rule like ".ir"
+  // ---- FIX: wildcard handling ----
+  if (s.startsWith("*.")) {
+    const rest = s.slice(2).trim();
+    if (!rest) return "";
+
+    if (allowSuffixRule) {
+      // "*.ir" => ".ir" (suffix)
+      // "*.digikala.com" => "digikala.com" (domain)
+      s = rest.includes(".") ? rest : "." + rest;
+    } else {
+      s = rest;
+    }
+  }
+  // --------------------------------
+
+  // suffix rule like ".ir"
   if (allowSuffixRule && s.startsWith(".")) {
     const suffix = s.toLowerCase().replace(/[^\x00-\x7F]/g, "").replace(/\.$/, "");
     return isValidSuffixRule(suffix) ? suffix : "";
@@ -164,24 +181,21 @@ function toAsciiHostname(host, { allowSuffixRule = false } = {}) {
     s = s.trim();
     if (!s) return "";
 
-    const stripped = s.replace(/[^\x00-\x7F]/g, "");
-    if (!stripped) return "";
-
     try {
-      const u2 = new URL(`https://${stripped}`);
-      const hostname2 = (u2.hostname || "").toLowerCase().replace(/\.$/, "");
-      return isValidHostToken(hostname2) ? hostname2 : "";
+      const u2 = new URL(`https://${s}`);
+      const host2 = (u2.hostname || "").toLowerCase().replace(/\.$/, "");
+      return isValidHostToken(host2) ? host2 : "";
     } catch {
-      return isValidHostToken(stripped) ? stripped : "";
+      const asciiHost = s.replace(/[^\x00-\x7F]/g, "");
+      return isValidHostToken(asciiHost) ? asciiHost : "";
     }
   }
 }
 
 /**
- * Reduce host to registrable domain (eTLD+1) using a lightweight heuristic:
+ * Reduce host to registrable domain (eTLD+1) using a lightweight heuristic.
  * - Most domains: last 2 labels => bbc.com
  * - Common ccTLD 2-level suffixes: last 3 labels => bbc.co.uk
- * This is not a full PSL, but works well in practice.
  */
 function registrableDomain(host) {
   host = (host || "").toLowerCase().replace(/\.$/, "");
@@ -217,14 +231,17 @@ function normalizeListForPac(list, { reduceToRoot = true, allowSuffixRule = fals
 function buildPacScript({ proxyHost, proxyPort, mode, includeSites, bypassSites }) {
   const safeProxyHost = toAsciiHostname(proxyHost) || "127.0.0.1";
   const proxyHostForPac = formatProxyHostForPac(safeProxyHost);
+
   const numericPort = Number(proxyPort);
-  const safeProxyPort = Number.isFinite(numericPort) && numericPort > 0 && numericPort <= 65535
-    ? Math.floor(numericPort)
-    : 10808;
+  const safeProxyPort =
+    Number.isFinite(numericPort) && numericPort > 0 && numericPort <= 65535
+      ? Math.floor(numericPort)
+      : 10808;
+
   const safeMode = mode === "all" ? "all" : "selected";
   const proxyValue = JSON.stringify(`SOCKS5 ${proxyHostForPac}:${safeProxyPort}; DIRECT`);
 
-  // Include: root domains
+  // Include: root domains (selected mode)
   const inc = normalizeListForPac(Array.isArray(includeSites) ? includeSites : [], {
     reduceToRoot: true,
     allowSuffixRule: false
@@ -236,8 +253,17 @@ function buildPacScript({ proxyHost, proxyPort, mode, includeSites, bypassSites 
     allowSuffixRule: true
   });
 
+  // ✅ NEW: Smart bypass roots (eTLD+1)
+  // If user adds a specific host like "www.varzesh3.com", we also bypass "varzesh3.com"
+  // so all subdomains become DIRECT and mixed-routing is minimized.
+  const bypRoots = normalizeListForPac(Array.isArray(bypassSites) ? bypassSites : [], {
+    reduceToRoot: true,
+    allowSuffixRule: false // roots are for domain-like tokens, not ".ir"
+  }).filter((x) => x && !x.startsWith(".")); // safety
+
   const includeJson = JSON.stringify(inc);
   const bypassJson = JSON.stringify(byp);
+  const bypassRootsJson = JSON.stringify(bypRoots);
 
   return `
 var PROXY = ${proxyValue};
@@ -245,6 +271,7 @@ var DIRECT = "DIRECT";
 var MODE = "${safeMode}";
 var INCLUDE = ${includeJson};
 var BYPASS = ${bypassJson};
+var BYPASS_ROOTS = ${bypassRootsJson};
 
 function strEndsWith(value, suffix) {
   var pos = value.length - suffix.length;
@@ -258,10 +285,13 @@ function hostMatches(host, rule) {
   if (!host || !rule) return false;
 
   // Suffix rule: ".ir" means anything ending with ".ir"
+  // hardening: also accept host == "ir" when rule == ".ir"
   if (rule.charAt(0) === ".") {
+    if (host === rule.slice(1)) return true;
     return strEndsWith(host, rule);
   }
 
+  // Domain rule: exact or subdomain
   if (host === rule) return true;
   return host.length > rule.length && strEndsWith(host, "." + rule);
 }
@@ -271,6 +301,29 @@ function isInList(host, list) {
     if (hostMatches(host, list[i])) return true;
   }
   return false;
+}
+
+// ✅ NEW: Lightweight eTLD+1 inside PAC
+function registrableDomainPac(host) {
+  host = (host || "").toLowerCase().replace(/\\.$/, "");
+  if (!host) return "";
+
+  // crude IPv4 check
+  if (/^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(host)) return host;
+
+  var parts = host.split(".").filter(Boolean);
+  if (parts.length <= 2) return host;
+
+  var tld = parts[parts.length - 1];
+  var sld = parts[parts.length - 2];
+  var looksLikeCcTld = (tld.length === 2);
+
+  var COMMON_SECOND_LEVEL = { "co":1, "com":1, "net":1, "org":1, "gov":1, "edu":1, "ac":1 };
+
+  if (looksLikeCcTld && COMMON_SECOND_LEVEL[sld] && parts.length >= 3) {
+    return parts.slice(-3).join(".");
+  }
+  return parts.slice(-2).join(".");
 }
 
 function isLocalOrPrivate(host) {
@@ -297,6 +350,10 @@ function FindProxyForURL(url, host) {
   // Bypass list always wins
   if (isInList(host, BYPASS)) return DIRECT;
 
+  // ✅ NEW: If registrable domain (eTLD+1) is bypassed, DIRECT for everything under it
+  var root = registrableDomainPac(host);
+  if (root && isInList(root, BYPASS_ROOTS)) return DIRECT;
+
   // Global mode: proxy everything else
   if (MODE === "all") return PROXY;
 
@@ -312,7 +369,6 @@ async function applySettings() {
   try {
     const data = await chrome.storage.sync.get(DEFAULT_SETTINGS);
 
-    // Icon + badge + tooltip
     setIcon(!!data.enabled);
     updateActionUi({ enabled: !!data.enabled, mode: data.mode || "selected" });
 
@@ -334,7 +390,6 @@ async function applySettings() {
       bypassSites: data.bypassSites
     });
 
-    // PAC script must be ASCII-only
     if (!isAsciiOnly(pacData)) {
       console.error("PAC script contains non-ASCII characters. Refusing to apply.");
       return;
@@ -360,10 +415,7 @@ async function applySettings() {
   }
 }
 
-// If you remove default_popup and want icon click to open options, keep this.
-// With default_popup enabled, clicking the icon opens the popup instead.
 chrome.action.onClicked.addListener(() => {
-  // This will NOT run when default_popup is set (Chrome opens the popup).
   chrome.runtime.openOptionsPage();
 });
 
@@ -373,5 +425,4 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === "sync") applySettings();
 });
 
-// Apply at service worker start
 applySettings();

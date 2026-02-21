@@ -179,14 +179,30 @@ function dedupeKeepLast(items) {
 function normalizeSuffixRule(raw) {
   let s = (raw || "").trim();
   if (!s) return "";
+
+  // remove quotes
   s = s.replace(/^["']|["']$/g, "").trim();
-  if (s.startsWith("*.")) s = s.slice(1); // "*.ir" -> ".ir"
+  if (!s) return "";
+
+  // FIX: wildcard handling
+  // "*.ir"            => ".ir"         (suffix rule)
+  // "*.digikala.com"  => "digikala.com" (domain rule, so root + subdomains work)
+  if (s.startsWith("*.")) {
+    const rest = s.slice(2).trim();
+    if (!rest) return "";
+    if (!rest.includes(".")) s = "." + rest;
+    else return ""; // wildcard with multi-label should NOT become suffix rule here
+  }
+
+  // Only suffix rules are allowed here (must start with ".")
   if (s.startsWith(".")) {
     s = s.toLowerCase().replace(/[^\x00-\x7F]/g, "").replace(/\.$/, "");
     return isValidSuffixRule(s) ? s : "";
   }
+
   return "";
 }
+
 
 function toAsciiHostnameFromInput(raw) {
   let s = (raw || "").trim();
