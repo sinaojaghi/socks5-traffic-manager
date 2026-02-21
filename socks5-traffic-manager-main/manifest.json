@@ -3,7 +3,7 @@
   "name": "Socks5 Traffic Manager",
   "version": "1.6.0",
   "description": "Advanced SOCKS5 proxy routing for Chrome with include/bypass lists, global mode, quick popup controls, auto-save, IDN-safe PAC generation, TLD rules (e.g., .ir), and incognito support.",
-  "permissions": ["proxy", "storage"],
+  "permissions": ["tabs", "proxy", "storage", "activeTab"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"

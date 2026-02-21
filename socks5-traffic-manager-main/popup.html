@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Socks5 Traffic Manager</title>
+
   <style>
     :root{
       --bg:#0b1020;
@@ -19,64 +20,93 @@
     *{ box-sizing:border-box; }
     body{
       margin:0;
+      padding:14px;
       width: 320px;
-      padding: 12px;
-      background: radial-gradient(500px 250px at 30% 0%, rgba(96,165,250,0.22), transparent 60%), var(--bg);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Arial, sans-serif;
+      background:
+        radial-gradient(1200px 600px at -10% -10%, rgba(96,165,250,0.35), transparent 40%),
+        radial-gradient(800px 500px at 110% 10%, rgba(34,197,94,0.22), transparent 55%),
+        var(--bg);
       color: var(--text);
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
     }
     .card{
-      border:1px solid var(--border);
       background: var(--card);
+      border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 12px;
+      padding: 14px;
+      box-shadow: 0 10px 24px rgba(0,0,0,0.25);
+    }
+    .top{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom: 12px;
     }
     .title{
       font-weight: 900;
-      text-align:center;
-      margin: 2px 0 10px;
-      letter-spacing: .2px;
+      letter-spacing: 0.2px;
     }
-    .row{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin:10px 0; }
-    .pill{
-      display:inline-flex; align-items:center; gap:8px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      border:1px solid rgba(255,255,255,0.16);
-      background: rgba(0,0,0,0.22);
-      font-weight: 800;
+    .status{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      font-weight: 900;
+      color: var(--muted);
       font-size: 12px;
     }
-    .dot{ width:10px; height:10px; border-radius:999px; background: var(--red); box-shadow: 0 0 0 4px rgba(239,68,68,0.16);}
-    .dot.on{ background: var(--green); box-shadow: 0 0 0 4px rgba(34,197,94,0.16); }
+    .dot{
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(239,68,68,0.95);
+      box-shadow: 0 0 0 2px rgba(239,68,68,0.15);
+    }
+    .dot.on{
+      background: rgba(34,197,94,0.95);
+      box-shadow: 0 0 0 2px rgba(34,197,94,0.18);
+    }
+
     .btn{
-      width: 100%;
-      border: 0;
-      border-radius: 12px;
-      padding: 10px 12px;
+      width:100%;
+      padding: 12px 12px;
+      border: 1px solid rgba(255,255,255,0.16);
+      border-radius: 14px;
       font-weight: 900;
       cursor: pointer;
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      transition: transform 0.05s ease;
     }
-    .btn.on{ background: linear-gradient(180deg, var(--green), #16a34a); color:#06210f; }
-    .btn.off{ background: linear-gradient(180deg, var(--red), #b91c1c); color:#2b0606; }
+    .btn:active{ transform: translateY(1px); }
+    .btn.on{
+      background: rgba(34,197,94,0.14);
+      border-color: rgba(34,197,94,0.35);
+    }
+    .btn.off{
+      background: rgba(239,68,68,0.12);
+      border-color: rgba(239,68,68,0.30);
+    }
+
     .mode{
-      display:grid;
-      gap:8px;
-      margin-top: 10px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      font-size: 13px;
+      color: var(--text);
     }
-    label{
-      display:flex; gap:10px; align-items:center;
-      padding: 10px 10px;
+    .mode label{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      padding: 8px 10px;
+      border: 1px solid rgba(255,255,255,0.12);
       border-radius: 12px;
-      border: 1px solid rgba(255,255,255,0.14);
       background: rgba(255,255,255,0.05);
       cursor:pointer;
-      user-select:none;
-      font-weight: 800;
-      font-size: 13px;
     }
-    input[type="radio"]{ margin:0; }
-    .muted{ color: var(--muted); font-size: 12px; line-height:1.45; margin-top: 8px; text-align:center; }
+    .mode input{ transform: translateY(1px); }
+
     .linkrow{ display:flex; gap:8px; margin-top: 10px; }
     .small{
       flex:1;
@@ -88,28 +118,60 @@
       font-weight: 900;
       cursor: pointer;
     }
+
+    /* ✅ Fast Import */
+    .fastImport{
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.06);
+      border-radius: var(--radius);
+    }
+    .fastTitle{
+      font-weight: 900;
+      margin-bottom: 8px;
+      letter-spacing: .2px;
+    }
+    .fastRow{
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+	.fastRow select {
+	  flex: 1;
+	  padding: 9px 10px;
+	  border-radius: 12px;
+	  border: 1px solid rgba(255,255,255,0.16);
+	  background: #1e293b; /* تیره‌تر */
+	  color: #ffffff;
+	  outline: none;
+	  font-weight: 800;
+	  appearance: none;
+	  -webkit-appearance: none;
+	  -moz-appearance: none;
+	  cursor: pointer;
+	}
+
+    .muted{
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
     .signature{
       margin-top: 10px;
       text-align: center;
       color: rgba(255,255,255,0.55);
-      font-size: 11px;
-      line-height: 1.5;
-      user-select: text;
+      font-size: 12px;
     }
-    .signature a{
-      color: rgba(96,165,250,0.95);
-      text-decoration: none;
-      font-weight: 800;
-    }
-    .signature a:hover{ text-decoration: underline; }
   </style>
 </head>
+
 <body>
   <div class="card">
-    <div class="title">Socks5 Traffic Manager</div>
-
-    <div class="row">
-      <div class="pill" id="statusPill">
+    <div class="top">
+      <div class="title">Socks5 Traffic Manager</div>
+      <div class="status">
         <span class="dot" id="dot"></span>
         <span id="statusText">DISABLED</span>
       </div>
@@ -133,13 +195,28 @@
       <button class="small" id="reloadBtn">Refresh</button>
     </div>
 
+    <!-- ✅ Fast Import (Include / Bypass) -->
+    <div class="fastImport">
+      <div class="fastTitle">Fast Import</div>
+
+      <div class="fastRow">
+        <select id="fastImportTarget" aria-label="Fast import target">
+          <option value="include">Add to Include</option>
+          <option value="bypass">Add to Bypass</option>
+        </select>
+
+        <button class="small" id="fastImportBtn" type="button">Add current tab</button>
+      </div>
+
+      <div class="muted" id="fastImportStatus" style="margin-top:6px;min-height:14px;"></div>
+    </div>
+
     <div class="muted">
       Tip: Hover can’t open popup in Chrome. Click the icon. Hover shows status via tooltip/badge.
     </div>
 
     <div class="signature">
-      This code was created by <b>sinaojaghi</b> with help of <b>ChatGPT</b> —
-      <a href="https://github.com/sinaojaghi" target="_blank" rel="noreferrer">github.com/sinaojaghi</a>
+      This code was created by <b>sinaojaghi</b>
     </div>
   </div>
 
