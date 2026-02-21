@@ -132,7 +132,7 @@ function isAsciiOnly(s) {
  * Converts Unicode hostnames to ASCII (Punycode) via URL normalization.
  * Also supports suffix rules like ".ir" when allowSuffixRule=true
  *
- * مهم: رفتار wildcard اصلاح شده:
+ * Wildcard behavior:
  *  - "*.ir" => ".ir"
  *  - "*.digikala.com" => "digikala.com"
  */
@@ -141,10 +141,11 @@ function toAsciiHostname(host, { allowSuffixRule = false } = {}) {
   let s = String(host).trim();
   if (!s) return "";
 
+  // remove quotes
   s = s.replace(/^["']|["']$/g, "").trim();
   if (!s) return "";
 
-  // ---- FIX: wildcard handling ----
+  // wildcard handling
   if (s.startsWith("*.")) {
     const rest = s.slice(2).trim();
     if (!rest) return "";
@@ -157,7 +158,6 @@ function toAsciiHostname(host, { allowSuffixRule = false } = {}) {
       s = rest;
     }
   }
-  // --------------------------------
 
   // suffix rule like ".ir"
   if (allowSuffixRule && s.startsWith(".")) {
@@ -173,6 +173,7 @@ function toAsciiHostname(host, { allowSuffixRule = false } = {}) {
     const hostname = (u.hostname || "").toLowerCase().replace(/\.$/, "");
     return isValidHostToken(hostname) ? hostname : "";
   } catch {
+    // fallback parsing
     s = s.toLowerCase();
     s = s.replace(/^https?:\/\//, "");
     s = s.replace(/\/.*$/, "");
@@ -193,16 +194,15 @@ function toAsciiHostname(host, { allowSuffixRule = false } = {}) {
 }
 
 /**
- * Reduce host to registrable domain (eTLD+1) using a lightweight heuristic.
- * - Most domains: last 2 labels => bbc.com
- * - Common ccTLD 2-level suffixes: last 3 labels => bbc.co.uk
+ * Reduce host to registrable domain (eTLD+1) using a lightweight heuristic:
+ * - Most domains: last 2 labels
+ * - ccTLD with common second-level: last 3 labels (e.g., bbc.co.uk)
  */
 function registrableDomain(host) {
   host = (host || "").toLowerCase().replace(/\.$/, "");
   if (!host) return "";
 
-  // Do not change suffix rules like ".ir"
-  if (host.startsWith(".")) return host;
+  if (host.startsWith(".")) return host; // keep suffix rules as-is
   if (isIpLiteral(host)) return host;
 
   const parts = host.split(".").filter(Boolean);
@@ -241,30 +241,29 @@ function buildPacScript({ proxyHost, proxyPort, mode, includeSites, bypassSites 
   const safeMode = mode === "all" ? "all" : "selected";
   const proxyValue = JSON.stringify(`SOCKS5 ${proxyHostForPac}:${safeProxyPort}; DIRECT`);
 
-  // Include: root domains (selected mode)
+  // Include: root domains in PAC
   const inc = normalizeListForPac(Array.isArray(includeSites) ? includeSites : [], {
     reduceToRoot: true,
     allowSuffixRule: false
   });
 
-  // Bypass: allow suffix rules (".ir") and preserve exact hosts/domains
+  // Bypass: preserve exact + allow suffix rules
   const byp = normalizeListForPac(Array.isArray(bypassSites) ? bypassSites : [], {
     reduceToRoot: false,
     allowSuffixRule: true
   });
 
-  // ✅ NEW: Smart bypass roots (eTLD+1)
-  // If user adds a specific host like "www.varzesh3.com", we also bypass "varzesh3.com"
-  // so all subdomains become DIRECT and mixed-routing is minimized.
+  // Smart bypass roots: if a host is bypassed, also bypass its eTLD+1
   const bypRoots = normalizeListForPac(Array.isArray(bypassSites) ? bypassSites : [], {
     reduceToRoot: true,
-    allowSuffixRule: false // roots are for domain-like tokens, not ".ir"
-  }).filter((x) => x && !x.startsWith(".")); // safety
+    allowSuffixRule: false
+  }).filter((x) => x && !x.startsWith("."));
 
   const includeJson = JSON.stringify(inc);
   const bypassJson = JSON.stringify(byp);
   const bypassRootsJson = JSON.stringify(bypRoots);
 
+  // IMPORTANT: PAC must be ASCII-only
   return `
 var PROXY = ${proxyValue};
 var DIRECT = "DIRECT";
@@ -284,14 +283,11 @@ function hostMatches(host, rule) {
   rule = (rule || "").toLowerCase().replace(/\\.$/, "");
   if (!host || !rule) return false;
 
-  // Suffix rule: ".ir" means anything ending with ".ir"
-  // hardening: also accept host == "ir" when rule == ".ir"
   if (rule.charAt(0) === ".") {
     if (host === rule.slice(1)) return true;
     return strEndsWith(host, rule);
   }
 
-  // Domain rule: exact or subdomain
   if (host === rule) return true;
   return host.length > rule.length && strEndsWith(host, "." + rule);
 }
@@ -303,12 +299,10 @@ function isInList(host, list) {
   return false;
 }
 
-// ✅ NEW: Lightweight eTLD+1 inside PAC
 function registrableDomainPac(host) {
   host = (host || "").toLowerCase().replace(/\\.$/, "");
   if (!host) return "";
 
-  // crude IPv4 check
   if (/^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(host)) return host;
 
   var parts = host.split(".").filter(Boolean);
@@ -344,20 +338,15 @@ function isLocalOrPrivate(host) {
 function FindProxyForURL(url, host) {
   host = (host || "").toLowerCase().trim().replace(/\\.$/, "");
 
-  // Always DIRECT for local/private networks
   if (isLocalOrPrivate(host)) return DIRECT;
 
-  // Bypass list always wins
   if (isInList(host, BYPASS)) return DIRECT;
 
-  // ✅ NEW: If registrable domain (eTLD+1) is bypassed, DIRECT for everything under it
   var root = registrableDomainPac(host);
   if (root && isInList(root, BYPASS_ROOTS)) return DIRECT;
 
-  // Global mode: proxy everything else
   if (MODE === "all") return PROXY;
 
-  // Selected mode: only proxy included sites
   if (isInList(host, INCLUDE)) return PROXY;
 
   return DIRECT;
@@ -375,9 +364,7 @@ async function applySettings() {
     if (!data.enabled) {
       chrome.proxy.settings.clear({ scope: "regular" }, () => {
         const err = chrome.runtime.lastError;
-        if (err) {
-          console.error("Failed to clear proxy settings:", err.message);
-        }
+        if (err) console.error("Failed to clear proxy settings:", err.message);
       });
       return;
     }
@@ -397,17 +384,12 @@ async function applySettings() {
 
     chrome.proxy.settings.set(
       {
-        value: {
-          mode: "pac_script",
-          pacScript: { data: pacData }
-        },
+        value: { mode: "pac_script", pacScript: { data: pacData } },
         scope: "regular"
       },
       () => {
         const err = chrome.runtime.lastError;
-        if (err) {
-          console.error("Failed to apply PAC proxy settings:", err.message);
-        }
+        if (err) console.error("Failed to apply PAC proxy settings:", err.message);
       }
     );
   } catch (error) {
